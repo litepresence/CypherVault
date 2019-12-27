@@ -13,5 +13,6 @@ litepresence2019
     master password hashed iteratively via traditional pbkdf
     master password rehashed iteratively via non traditional method
 
-
-https://github.com/litepresence/CypherVault/blob/master/Screenshot%20from%202019-12-27%2015-00-45.png
+<p align="center"> 
+<img src="https://imgur.com/l4mcv5J.png">	
+</p>
