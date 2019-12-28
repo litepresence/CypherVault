@@ -3,7 +3,7 @@ CypherVault - Command Line Password Manager
 
 litepresence2019
 
-writes site login to clipboard w/ xclip; auto deletes in 15 seconds
+writes site login to clipboard w/ xclip; auto deletes in 10 seconds
 reads/writes AES CBC encrypted password json to text file
 new salt after every successful login, password change, return to main menu, and exit
 salt is 16 byte and generated in crypto secure manner
@@ -27,6 +27,7 @@ https://www.owasp.org
 import os
 import sys
 import time
+import string
 import struct
 import traceback
 from hashlib import sha512
@@ -44,6 +45,7 @@ from getpass import getpass
 from pprint import pprint
 
 # THIRD PARTY MODULES
+# WARNING: "pip install pycryptodome" NOT the deprecated "pycrypto"
 from Crypto import Random
 from Crypto.Cipher import AES
 
@@ -54,7 +56,19 @@ MEGABYTES = 400
 ITERATIONS = 1000000
 
 # CURRENT RELEASE ID
-VERSION = 0.00000003
+VERSION = 0.00000004
+
+# FORMATTING METHODS
+def banner():
+    """
+    prepare a banner for use by wallet_main() and wallet_initialize()
+    """
+    return f"""
+    ******************************************
+    *** Welcome to CypherVault v{VERSION:.8f} ***
+    ******************************************
+    
+    """
 
 
 def it(style, text):
@@ -69,23 +83,23 @@ def it(style, text):
         "purple": 95,
         "cyan": 96,
     }
-    return ("\033[%sm" % emphasis[style]) + str(text) + "\033[0m"
+    return f"\033[{emphasis[style]}m{str(text)}\033[0m"
 
 
 def trace():
     """
     Stack trace report upon exception
     """
-    return "\n\n" + str(time.ctime()) + "\n\n" + str(traceback.format_exc()) + "\n\n"
+    return "\n\n".join([time.ctime(), traceback.format_exc()])
 
 
+# READ / WRITE METHODS
 def doc_write(document, text):
     """
     write a dictionary to file
     """
     with open(document, "w+") as handle:
         handle.write(text)
-        handle.close()
 
 
 def doc_read(document):
@@ -93,11 +107,10 @@ def doc_read(document):
     read dictionary from file
     """
     with open(document, "r") as handle:
-        text = handle.read()
-        handle.close()
-        return text
+        return handle.read()
 
 
+# CLIPBOARD METHODS
 def clip_get():
     """
     read from clipboard
@@ -117,6 +130,7 @@ def clip_set(data):
     clip.wait()
 
 
+# CRYPTOGRAPHY METHODS
 def crypto_pad(msg):
     """
     pad if length is not a multiple of 128 else unpad as required
@@ -228,30 +242,38 @@ def crypto_indite(passwords):
     )
 
 
-def wallet_main(master=None, passwords=None):
+# WALLET METHODS
+def wallet_main(passwords):
     """
-    ******************************************
-    *** Welcome to CypherVault v"""
-    msg = "***\n    ******************************************\n"
-    print("\033c", it("green", wallet_main.__doc__ + ("%.8f " % VERSION) + msg))
-    if passwords is None:
-        passwords = wallet_initialize(master)
+    1: ENTER A NEW PASSWORD OR EDIT A PASSWORD
+    2: DELETE A PASSWORD
+    3: SUGGEST A PASSWORD
+    4: PRINT SITE/USER LIST
+    5: PRINT SITE/USER/PASSWORD LIST
+    6: EXIT
+    """
     crypto_indite(passwords)
-    choice = wallet_choices(passwords["master"]["master"], passwords)
-    if choice == 0:
-        option_get(passwords)
-    elif choice == 1:
-        option_post(passwords)
-    elif choice == 2:
-        option_delete(passwords)
-    elif choice == 3:
-        option_suggest(passwords)
-    elif choice == 4:
-        option_print(passwords)
-    elif choice == 5:
-        option_print_full(passwords)
-    elif choice == 6:
-        crypto_indite(passwords)
+
+    while True:
+        print("\033c", it("green", banner()), it("green", wallet_main.__doc__))
+        choice = input("input choice or press Enter to GET A PASSWORD: ") or "0"
+        if choice.isdigit():
+            choice = int(choice)
+            if 0 <= choice <= 6:
+                break
+        print(f"\033c\n\n\n\tinvalid choice <{it('green', choice)}> try again")
+        time.sleep(2)
+    menu = {
+        0: option_get,
+        1: option_post,
+        2: option_delete,
+        3: option_suggest,
+        4: option_print,
+        5: option_print_full,
+        6: crypto_indite,
+    }
+    menu[choice](passwords)
+    if choice == 6:
         sys.exit()
 
 
@@ -261,6 +283,7 @@ def wallet_initialize(master):
     """
     # read password dictionary if none exists create a new encrypted cyphervault
     # all passwords are in format >>> passwords[site][user]
+    print("\033c", it("green", banner()))
     try:
         cyphervault = doc_read("cyphervault.txt").split("$", 1)[1]
         assert len(cyphervault) > 0
@@ -283,10 +306,8 @@ def wallet_initialize(master):
         trace()
         print(it("green", "\ninvalid master password, press Enter to try again..."))
         input("\npress Enter to return to main menu")
-        wallet_main()  # recursion
+        wallet_initialize(master=None)  # recursion
     if decrypted:
-        # after every successful login create a new salt
-        crypto_indite(passwords)
         print(it("green", "\n    login successful!"))
         # warn if password is default
         if master == "password":
@@ -294,33 +315,10 @@ def wallet_initialize(master):
             print("\nyour master password is: ", it("green", master))
         # perform some tests on the password
         audit(master)
-
-        return passwords
-
-
-def wallet_choices(master, passwords):
-    """
-    1: ENTER A NEW PASSWORD OR EDIT A PASSWORD
-    2: DELETE A PASSWORD
-    3: SUGGEST A PASSWORD
-    4: PRINT SITE/USER LIST
-    5: PRINT SITE/USER/PASSWORD LIST
-    6: EXIT
-    """
-    print(it("green", wallet_choices.__doc__))
-    choice = input("input choice or press Enter to GET A PASSWORD: ")
-    if not choice:
-        choice = 0
-    try:
-        choice = int(choice)
-        assert 0 <= choice <= 6
-    except Exception:
-        print("\033cinvalid choice (", choice, ") try again")
-        time.sleep(2)
-        wallet_main(master, passwords)
-    return choice
+        wallet_main(passwords)
 
 
+# WALLET OPTION METHODS
 def option_get(passwords):
     """
     the password has been copied to the clipboard
@@ -343,7 +341,7 @@ def option_get(passwords):
         if response in ["", "y", "Y"]:
             option_post(passwords, site, user)
     input("\npress Enter to return to main menu")
-    wallet_main(passwords["master"]["master"], passwords)
+    wallet_main(passwords)
 
 
 def option_post(passwords, site=None, user=None):
@@ -363,6 +361,7 @@ def option_post(passwords, site=None, user=None):
             passwords[site][user] = new_pass
             crypto_indite(passwords)
             print(it("green", "\nCypherVault has been updated"))
+            time.sleep(1)
         else:  # recursion
             print(it("purple", "\npasswords do not match, try again..."))
             time.sleep(2)
@@ -376,6 +375,7 @@ def option_post(passwords, site=None, user=None):
         if user in passwords[site].keys():
             print("\nsite:", site, "\nuser:", user)
             print(it("purple", "\nWARN: site/user already exists"))
+            time.sleep(1)
             response = input("\nwould you like to overwrite this site/user? (y/n):")
             if response not in ["", "y", "Y"]:
                 create_new = False
@@ -383,7 +383,7 @@ def option_post(passwords, site=None, user=None):
         update(passwords, site, user)
     # return to main menu
     input("\npress Enter to return to main menu")
-    wallet_main(passwords["master"]["master"], passwords)
+    wallet_main(passwords)
 
 
 def option_delete(passwords):
@@ -406,15 +406,15 @@ def option_delete(passwords):
                 del passwords[site]
                 crypto_indite(passwords)
                 print(it("purple", "\nsite/user has been deleted"))
-                time.sleep(2)
+                time.sleep(1)
         else:
             # return to the main menu
             print(it("purple", "\nsite/user was not found"))
-
+            time.sleep(1)
     else:
         print(it("purple", "you cannot delete the master password!"))
     input("\npress Enter to return to main menu")
-    wallet_main(passwords["master"]["master"], passwords)
+    wallet_main(passwords)
 
 
 def option_print(passwords):
@@ -423,10 +423,11 @@ def option_print(passwords):
     """
     print("")
     for site, logins in passwords.items():
-        for user, _ in logins.items():
+        for user in logins.keys():
             print(it("green", site + " : " + user))
+    time.sleep(1)
     input("\npress Enter to return to main menu")
-    wallet_main(passwords["master"]["master"], passwords)
+    wallet_main(passwords)
 
 
 def option_print_full(passwords):
@@ -445,26 +446,24 @@ def option_print_full(passwords):
     response = input(it("green", msg))
     if response in ["y", "Y"]:
         msg = "\npress Enter to expose the CypherVault\npress Enter again to exit\n"
-        print(it("green", msg))
-        input()
+        input(it("green", msg))
         print("\033c\n\n\n")
         pprint(passwords)
     input(it("green", "\npress Enter to return to main menu"))
-    wallet_main(passwords["master"]["master"], passwords)
+    wallet_main(passwords)
 
 
 def option_suggest(passwords, length=10):
     """
-    press Enter to suggest another secure random password
-    or any number 10 to 500, then Enter to change the length
-    or any other key, then Enter to return to main menu\n
+    this password is on your clipboard, ctrl+V to paste\n
+    press Enter to suggest another secure random password\n
+    or any number 10 to 500, then Enter to change the length\n
+    or any other key, then Enter to return to main menu\n\n\t
     """
     response = ""
     while not response:
-        chars = "0123456789"
-        chars += "abcdefghijklmnopqrstuvwxyz"
-        chars += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        chars += "?%^*+~-=[]{}:,.#_"  # Oracle approved symbols
+        # letters numbers and Oracle approved symbols
+        chars = string.ascii_letters + string.digits + "?%^*+~-=[]{}:,.#_"
         legit = False
         while not legit:
             seed(int(crypto_100()))
@@ -473,6 +472,7 @@ def option_suggest(passwords, length=10):
                 password += str(chars[randint(0, len(chars) - 1)])
             legit = audit(password, display=False)
         print("\033c\n   ", it("green", password), "\n")
+        clip_set(password)
         response = input(option_suggest.__doc__)
         print("")
         if response.isdigit():
@@ -480,16 +480,17 @@ def option_suggest(passwords, length=10):
             if response < 10:
                 input("minimum suggested length is 10, press Enter to continue")
                 length = 10
-            if response >500:
+            if response > 500:
                 input("maximum supported length is 500, press Enter to continue")
                 length = 500
             else:
                 length = response
             response = ""
         elif response:
-            wallet_main(passwords["master"]["master"], passwords)
+            wallet_main(passwords)
 
 
+# INPUT AND ANALYSIS METHODS
 def input_site_user():
     """
     routine to input site and user name
@@ -544,4 +545,4 @@ def audit(password, display=True):
 
 if __name__ == "__main__":
 
-    wallet_main()
+    wallet_initialize(master=None)
