@@ -246,9 +246,9 @@ def wallet_main(passwords):
     1: ENTER A NEW PASSWORD OR EDIT A PASSWORD
     2: DELETE A PASSWORD
     3: SUGGEST A PASSWORD
-    4: ENTER JSON PASSWORDS DICT
-    5: PRINT SITE/USER LIST PLAIN TEXT
-    6: PRINT SITE/USER/PASSWORD LIST JSON
+    4: ENTER JSON PASSWORDS
+    5: PRINT JSON PASSWORDS 
+    6: PRINT SITE/USER LIST PLAIN TEXT
     7: EXIT
     """
     crypto_indite(passwords)
@@ -268,8 +268,8 @@ def wallet_main(passwords):
         2: option_delete,
         3: option_suggest,
         4: option_import_json,
-        5: option_print,
-        6: option_print_full,
+        5: option_print_full,
+        6: option_print,
         7: crypto_indite,
     }
     menu[choice](passwords)
@@ -534,7 +534,7 @@ def option_suggest(passwords, length=12):
 
 def option_import_json(passwords):
     """
-    use this utility to import a password dictionary
+    use this utility to import and append a password dictionary
     via cut and paste from text editor
     it must be properly formatted JSON, example:\n
     {"site_name":{"user_name":"your_password"}}\n
@@ -577,6 +577,7 @@ def option_import_json(passwords):
         except ValueError:
             trace()
             input("invalid json\n\npress Enter to return to main menu")
+    clip_set("")
     wallet_main(passwords)
 
 
