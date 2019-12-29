@@ -30,6 +30,7 @@ import time
 import string
 import struct
 import traceback
+from stat import S_IREAD
 from hashlib import sha512
 from hashlib import blake2b as blake
 from hashlib import sha3_512 as sha3
@@ -39,10 +40,9 @@ from base64 import b64encode, b64decode
 from json import loads as json_loads
 from json import dumps as json_dumps
 from subprocess import Popen, PIPE
-from random import seed, randint
+from random import seed, randint, shuffle
 from binascii import hexlify
 from getpass import getpass
-from pprint import pprint
 
 # THIRD PARTY MODULES
 # WARNING: "pip install pycryptodome" NOT the deprecated "pycrypto"
@@ -56,7 +56,10 @@ MEGABYTES = 400
 ITERATIONS = 1000000
 
 # CURRENT RELEASE ID
-VERSION = 0.00000004
+VERSION = 0.00000005
+
+# WORKING DIRECTORY
+PATH = str(os.path.dirname(os.path.abspath(__file__))) + "/"
 
 # FORMATTING METHODS
 def banner():
@@ -243,32 +246,34 @@ def wallet_main(passwords):
     1: ENTER A NEW PASSWORD OR EDIT A PASSWORD
     2: DELETE A PASSWORD
     3: SUGGEST A PASSWORD
-    4: PRINT SITE/USER LIST
-    5: PRINT SITE/USER/PASSWORD LIST
-    6: EXIT
+    4: ENTER JSON PASSWORDS DICT
+    5: PRINT SITE/USER LIST PLAIN TEXT
+    6: PRINT SITE/USER/PASSWORD LIST JSON
+    7: EXIT
     """
     crypto_indite(passwords)
-
+    sites_without(passwords)
     while True:
         print("\033c", it("green", banner()), it("green", wallet_main.__doc__))
         choice = input("input choice or press Enter to GET A PASSWORD: ") or "0"
         if choice.isdigit():
             choice = int(choice)
-            if 0 <= choice <= 6:
+            if 0 <= choice <= 7:
                 break
-        print(f"\033c\n\n\n\tinvalid choice <{it('green', choice)}> try again")
+        print(f"\033c\n\n\n\tinvalid choice < {it('green', choice)} > try again")
         time.sleep(2)
     menu = {
         0: option_get,
         1: option_post,
         2: option_delete,
         3: option_suggest,
-        4: option_print,
-        5: option_print_full,
-        6: crypto_indite,
+        4: option_import_json,
+        5: option_print,
+        6: option_print_full,
+        7: crypto_indite,
     }
     menu[choice](passwords)
-    if choice == 6:
+    if choice == 7:
         sys.exit()
 
 
@@ -281,7 +286,7 @@ def wallet_initialize(master):
     print("\033c", it("green", banner()))
     try:
         cyphervault = doc_read("cyphervault.txt").split("$", 1)[1]
-        assert len(cyphervault) > 0
+        assert cyphervault
     except Exception:
         print("\nCypherVault not found, intitializing new...")
         doc_write("cyphervault.txt", (crypto_100() + "$n"))
@@ -308,6 +313,7 @@ def wallet_initialize(master):
         if master == "password":
             print(it("purple", "\nyou should change default password immediately!"))
             print("\nyour master password is: ", it("green", master))
+            input("\npress Enter to continue")
         # perform some tests on the password
         audit(master)
         wallet_main(passwords)
@@ -345,7 +351,9 @@ def option_post(passwords, site=None, user=None):
     """
 
     def update(passwords, site, user):
-
+        """
+        input password and edit the CypherVault
+        """
         print(it("purple", "\nsite/user:"), site, user, "\n")
         # double Enter the new password
         new_pass = getpass("\ninput password: ")
@@ -419,7 +427,10 @@ def option_print(passwords):
     print("")
     for site, logins in passwords.items():
         for user in logins.keys():
-            print(it("green", site + " : " + user))
+            if user == site:
+                print(it("green", site))
+            else:
+                print(it("green", site + " : " + user))
     time.sleep(1)
     input("\npress Enter to return to main menu")
     wallet_main(passwords)
@@ -440,32 +451,68 @@ def option_print_full(passwords):
     msg = "\nare you sure you want to print your unencrypted CyperVault (y/n):  "
     response = input(it("green", msg))
     if response in ["y", "Y"]:
-        msg = "\npress Enter to expose the CypherVault\npress Enter again to exit\n"
-        input(it("green", msg))
+        input("\npress Enter to expose the CypherVault\npress Enter again to exit\n")
         print("\033c\n\n\n")
-        pprint(passwords)
-    input(it("green", "\npress Enter to return to main menu"))
+        print(it("green", json_dumps(passwords, indent=0, sort_keys=True)))
+    input("press Enter to return to main menu")
     wallet_main(passwords)
 
 
-def option_suggest(passwords, length=10):
+def option_suggest(passwords, length=12):
     """
     this password is on your clipboard, ctrl+V to paste\n
     press Enter to suggest another secure random password\n
     or any number 10 to 500, then Enter to change the length\n
     or any other key, then Enter to return to main menu\n\n\t
     """
+
+    def cluster(password):
+        """
+        format password into blocks of numbers, letters, and symbols 
+        """
+
+        def split(string):
+            """
+            split string into blocks
+            """
+            length = randint(3,4)
+            return [string[i : i + length] for i in range(0, len(string), length)]
+
+        digits = ""
+        uppers = ""
+        lowers = ""
+        others = ""
+        for char in password:
+            if char.isdigit():
+                digits += char
+            elif char.isupper():
+                uppers += char
+            elif char.islower():
+                lowers += char
+            else:
+                others += char
+
+        cluster_list = (
+            split(digits) + split(lowers) + split(uppers) + [i for i in others]
+        )
+        shuffle(cluster_list)
+
+        return "".join(cluster_list)
+
     response = ""
     while not response:
-        # letters numbers and Oracle approved symbols
+        # letters, numbers, and Oracle approved symbols
         chars = string.ascii_letters + string.digits + "?%^*+~-=[]{}:,.#_"
         legit = False
         while not legit:
+
             seed(int(crypto_100()))
             password = ""
             for _ in range(length):
                 password += str(chars[randint(0, len(chars) - 1)])
+            password = cluster(password)
             legit = audit(password, display=False)
+
         print("\033c\n   ", it("green", password), "\n")
         clip_set(password)
         response = input(option_suggest.__doc__)
@@ -485,14 +532,62 @@ def option_suggest(passwords, length=10):
             wallet_main(passwords)
 
 
+def option_import_json(passwords):
+    """
+    use this utility to import a password dictionary
+    via cut and paste from text editor
+    it must be properly formatted JSON, example:\n
+    {"site_name":{"user_name":"your_password"}}\n
+    which is the same format as menu choice\n
+    PRINT SITE/USER/PASSWORD LIST JSON\n
+    for email addresses site and user must match\n
+    DO NOT save the text document!
+    use an "untitled" text document,
+    so it does not autosave and remains in RAM!\n
+    to skip and return to main menu, press Enter\n 
+    """
+    print("\033c\n\n\n", it("green", option_import_json.__doc__))
+    json_doc = input("enter your JSON formatted password list:  ")
+    if json_doc:
+        try:
+            dictionary = json_loads(json_doc)
+            try:
+                d_is = isinstance(dictionary, dict)
+                for k, v in dictionary.items():
+                    k_is = isinstance(k, str)
+                    v_is = isinstance(v, dict)
+                    for k2, v2 in v.items():
+                        k2_is = isinstance(k, str)
+                        v2_is = isinstance(k, str)
+                valid = d_is and k_is and v_is and k2_is and v2_is
+                if not valid:
+                    raise ValueError
+            except ValueError:
+                trace()
+                msg = """
+                    improperly formatted passwords dictionary\n\n
+                    press Enter to return to main menu
+                    """
+                input(msg)
+                wallet_main(passwords)
+            passwords.update(dictionary)
+            crypto_indite(passwords)
+            print(it("green", "\nCypherVault successfully updated!"))
+            wallet_main(passwords)
+        except ValueError:
+            trace()
+            input("invalid json\n\npress Enter to return to main menu")
+    wallet_main(passwords)
+
+
 # INPUT AND ANALYSIS METHODS
 def input_site_user():
     """
     routine to input site and user name
     """
     site = input("\nEnter site name:  ")
-    if site == "master":
-        user = "master"
+    if (("@" in site) and (".com" in site)) or (site == "master"):
+        user = site
     else:
         user = input("\nEnter user name:  ")
     print("")
@@ -535,9 +630,51 @@ def audit(password, display=True):
         legit = False
         if display:
             print(it("purple", audit.__doc__), it("green", "audit:"), review)
+            input("\npress Enter to continue")
     return legit
 
 
+def read_only():
+    """
+    require sudo to edit CypherVault.py
+    """
+    os.chmod(PATH+"cyphervault.py", S_IREAD)
+
+
+def sites_without(passwords):
+    """
+    maintain a list of user accounts in JSON format in CypherVault_accounts.txt
+    """
+    accounts = {k:{k2:"" for k2,v2 in v.items()} for k,v in passwords.items()}
+    doc_write(
+        "CypherVault_accounts.txt",
+        json_dumps(accounts, indent=0, sort_keys=True)
+    )
+
+    
+def pycryptodome():
+    """
+    \nTEST FAILED!\n\n
+    "pycrypto" is not maintained and has been replaced by "pycryptodome"\n
+    packages installed on your system:\n
+    """
+    print("\033c\n\nensuring", it("green","pycryptodome"), "is installed...")   
+    print("ensuring pycrypto is", it("purple","NOT"), "installed...")
+    p = Popen(["pip", "show", "pycrypto"], stdout=PIPE)
+    out_pycrypto, _ = p.communicate()
+    p = Popen(["pip", "show", "pycryptodome"], stdout=PIPE)
+    out_pycryptodome, _ = p.communicate()
+    out_pycrypto = out_pycrypto.decode()
+    out_pycryptodome = out_pycryptodome.decode()
+    if (("Version" in out_pycrypto) or not ("Version" in out_pycryptodome)):
+        print(it("purple", pycryptodome.__doc__), out_pycryptodome, out_pycrypto)
+        raise ValueError(it("green", "pip3 install pycryptodome"))
+    else:
+        print(it("purple", "\n\nTEST PASSED!\n\n"))
+        time.sleep(1)
+
 if __name__ == "__main__":
 
+    pycryptodome() # comment out this line to skip test
+    read_only()
     wallet_initialize(master=None)
